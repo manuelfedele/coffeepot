@@ -1,10 +1,10 @@
-// Generates AppIcon.icns from the production coffee-pot geometry.
-// Run via the build script; not part of the app itself.
+// Generates an AppIcon iconset from the bundled moka artwork (Resources/moka.svg),
+// so the Dock/Finder/About icon stays in sync with the menu-bar glyph.
+// Run via build.sh; not part of the shipping app.
 //
 //   swiftc -O -framework AppKit -framework CoreGraphics -framework ImageIO \
-//          -framework UniformTypeIdentifiers Tools/GenerateAppIcon.swift \
-//          Sources/CoffeePot/StatusIcon.swift -o /tmp/genicon
-//   /tmp/genicon <output-iconset-dir>
+//          -framework UniformTypeIdentifiers Tools/GenerateAppIcon.swift -o /tmp/genicon
+//   /tmp/genicon Resources/moka.svg <output-iconset-dir>
 //
 // Then: iconutil -c icns <iconset-dir> -o build/AppIcon.icns
 
@@ -13,24 +13,22 @@ import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
 
-// Draw a macOS "squircle"-ish rounded-rect app icon tile with a warm coffee
-// gradient and the coffee pot in white, with the standard ~10% transparent
-// margin Apple uses around app icons.
-func renderAppIcon(size: Int, to url: URL) -> Bool {
+/// Render one rounded-rect app-icon tile: a warm espresso gradient with the
+/// moka silhouette in warm white, leaving the standard ~10% transparent gutter
+/// Apple uses around macOS app icons.
+func renderAppIcon(size: Int, moka: NSImage, to url: URL) -> Bool {
     let cs = CGColorSpaceCreateDeviceRGB()
     guard let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8,
                               bytesPerRow: 0, space: cs,
                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
 
     let dim = CGFloat(size)
-    // Apple icons have a transparent gutter; the rounded tile fills ~82%.
     let margin = dim * 0.09
     let tile = CGRect(x: margin, y: margin, width: dim - 2 * margin, height: dim - 2 * margin)
     let radius = tile.width * 0.225 // continuous-corner-ish radius
 
     ctx.saveGState()
-    let rounded = CGPath(roundedRect: tile, cornerWidth: radius, cornerHeight: radius, transform: nil)
-    ctx.addPath(rounded)
+    ctx.addPath(CGPath(roundedRect: tile, cornerWidth: radius, cornerHeight: radius, transform: nil))
     ctx.clip()
 
     // Warm espresso gradient background.
@@ -46,14 +44,17 @@ func renderAppIcon(size: Int, to url: URL) -> Bool {
     }
     ctx.restoreGState()
 
-    // White coffee pot, inset within the tile.
+    // The moka, inset within the tile, recoloured to warm white. The SVG is
+    // black, so we mask the white fill through the rendered glyph (sourceIn).
     let potRect = tile.insetBy(dx: tile.width * 0.16, dy: tile.height * 0.16)
+    var proposed = potRect
+    guard let glyph = moka.cgImage(forProposedRect: &proposed, context: nil, hints: nil) else { return false }
+
     ctx.saveGState()
     ctx.beginTransparencyLayer(auxiliaryInfo: nil)
-    StatusIcon.drawCoffeePot(in: potRect, context: ctx, filled: true)
+    ctx.draw(glyph, in: potRect)
     ctx.setBlendMode(.sourceIn)
-    // Slightly warm white so it doesn't look clinical.
-    ctx.setFillColor(CGColor(red: 0.98, green: 0.96, blue: 0.93, alpha: 1.0))
+    ctx.setFillColor(CGColor(red: 0.98, green: 0.96, blue: 0.93, alpha: 1.0)) // warm white
     ctx.fill(potRect)
     ctx.endTransparencyLayer()
     ctx.restoreGState()
@@ -69,11 +70,17 @@ func renderAppIcon(size: Int, to url: URL) -> Bool {
 struct Generator {
     static func main() {
         let args = CommandLine.arguments
-        guard args.count >= 2 else {
-            FileHandle.standardError.write("usage: genicon <output.iconset dir>\n".data(using: .utf8)!)
+        guard args.count >= 3 else {
+            FileHandle.standardError.write("usage: genicon <moka.svg> <output.iconset dir>\n".data(using: .utf8)!)
             exit(2)
         }
-        let outDir = URL(fileURLWithPath: args[1], isDirectory: true)
+        let svgURL = URL(fileURLWithPath: args[1])
+        let outDir = URL(fileURLWithPath: args[2], isDirectory: true)
+
+        guard let moka = NSImage(contentsOf: svgURL) else {
+            FileHandle.standardError.write("error: could not load \(svgURL.path)\n".data(using: .utf8)!)
+            exit(1)
+        }
         try? FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
 
         // Standard macOS iconset entries: (pixelSize, filename)
@@ -92,8 +99,7 @@ struct Generator {
 
         var ok = true
         for (px, name) in entries {
-            let url = outDir.appendingPathComponent(name)
-            if !renderAppIcon(size: px, to: url) {
+            if !renderAppIcon(size: px, moka: moka, to: outDir.appendingPathComponent(name)) {
                 FileHandle.standardError.write("failed: \(name)\n".data(using: .utf8)!)
                 ok = false
             }

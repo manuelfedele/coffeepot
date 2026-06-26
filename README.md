@@ -6,15 +6,16 @@
 
 **A tiny macOS menu-bar app that keeps your Mac awake.**
 
-A coffee pot lives in your menu bar. Click it to keep your Mac (and display)
+A moka pot lives in your menu bar. Click it to keep your Mac (and display)
 from sleeping for **15 minutes**, **60 minutes**, or **indefinitely**.
 
 </div>
 
 ## States
 
-The pot is **solid** while it's keeping your Mac awake and **faded** when idle.
-It's a template icon, so it adapts to light and dark menu bars automatically.
+The moka is **solid** while it's keeping your Mac awake and **faded** when idle.
+It's a template image rendered from a single SVG, so it adapts to light and dark
+menu bars automatically.
 
 | Light menu bar | Dark menu bar |
 | --- | --- |
@@ -24,13 +25,15 @@ It's a template icon, so it adapts to light and dark menu bars automatically.
 
 ## Features
 
-- ☕️ **One-click toggle**: left-click the pot to start/stop with your last
+- ☕️ **One-click toggle**: left-click the moka to start/stop with your last
   chosen duration.
 - ⏱️ **Durations**: 15 min, 60 min, or indefinite, from the right-click menu.
-- ⏳ **Live countdown**: the menu shows how much time is left.
+- ⏳ **Live countdown**: the menu shows how much time is left, and the deadline
+  is re-checked on wake so a session that ran out mid-sleep expires promptly.
 - 🖥️ **Display sleep control**: optionally let the display sleep while still
-  preventing system idle sleep.
-- 🚀 **Start at Login**: register as a login item (macOS 13+ `SMAppService`).
+  preventing system idle sleep. Toggling it mid-session preserves the countdown.
+- 🚀 **Start at Login**: register as a login item (macOS 13+ `SMAppService`),
+  with a clear prompt if macOS needs you to approve it in System Settings.
 - 🧹 **No leftovers**: uses an IOKit power assertion, released automatically if
   the app ever quits or crashes. No lingering `caffeinate` process.
 - 🪶 **Tiny and native**: pure Swift + AppKit, no dependencies, universal binary
@@ -40,12 +43,12 @@ It's a template icon, so it adapts to light and dark menu bars automatically.
 
 ```mermaid
 flowchart LR
-    Click["Click coffee pot<br/>(or pick a duration)"] --> Ctrl[CaffeineController]
+    Click["Click moka pot<br/>(or pick a duration)"] --> Ctrl[CaffeineController]
     Ctrl -->|activate| Assert["IOKit<br/>IOPMAssertionCreateWithName"]
     Assert --> Awake["PreventUserIdleDisplaySleep<br/>(or System-only)"]
-    Ctrl -->|timer fires / click again| Release["IOPMAssertionRelease"]
+    Ctrl -->|deadline reached / click again| Release["IOPMAssertionRelease"]
     Release --> Sleep["Mac can sleep again"]
-    Ctrl -. countdown .-> Menu["Menu shows time left<br/>+ icon goes solid/faded"]
+    Ctrl -. 1&nbsp;Hz tick .-> Menu["Menu shows time left<br/>+ icon solid/faded"]
 ```
 
 The keep-awake is a single power-management assertion held by the running
@@ -79,8 +82,8 @@ app is installed in `/Applications`.)
 
 | Action | Result |
 | --- | --- |
-| **Left-click** the pot | Toggle keep-awake on/off with the last duration |
-| **Right-click** the pot | Open the menu: durations, options, quit |
+| **Left-click** the moka | Toggle keep-awake on/off with the last duration |
+| **Right-click** the moka | Open the menu: durations, options, quit |
 | Pick *15 / 60 / indefinite* | Start keeping awake for that period |
 | *Allow display to sleep* | Keep the system awake but let the screen sleep |
 | *Quit* | Release the assertion and exit |
@@ -89,15 +92,17 @@ app is installed in `/Applications`.)
 
 ```
 Sources/CoffeePot/
-  main.swift              # entry point (accessory app)
-  AppDelegate.swift       # status item, menu, UI wiring
+  main.swift               # entry point (accessory app)
+  AppDelegate.swift        # status item, menu, UI wiring, wake handling
   CaffeineController.swift # IOKit power assertion + countdown timer
-  LoginItem.swift         # Start-at-Login via SMAppService
-  StatusIcon.swift        # the coffee-pot icon (CoreGraphics)
+  LoginItem.swift          # Start-at-Login via SMAppService
+  StatusIcon.swift         # loads moka.svg as a template menu-bar image
+Resources/
+  moka.svg                 # the moka-pot icon (single source of art)
 Tools/
-  GenerateAppIcon.swift   # renders AppIcon.icns from the same geometry
-Info.plist                # LSUIElement accessory app
-build.sh / install.sh     # build + install (no Xcode project)
+  GenerateAppIcon.swift    # renders AppIcon.icns from moka.svg
+Info.plist                 # LSUIElement accessory app
+build.sh / install.sh      # build + install (no Xcode project)
 ```
 
 ## License

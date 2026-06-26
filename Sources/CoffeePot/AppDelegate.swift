@@ -24,16 +24,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.image = StatusIcon.image(active: false)
             button.imagePosition = .imageOnly
             button.toolTip = "CoffeePot: keep your Mac awake"
+            button.setAccessibilityLabel("CoffeePot")
             // Left-click toggles, right-click opens the menu.
             button.target = self
             button.action = #selector(statusButtonClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
+        // Full refresh (icon + menu + labels) on real state changes; a cheaper
+        // refresh of just the dynamic text on each countdown tick.
         caffeine.onStateChange = { [weak self] in self?.refreshUI() }
+        caffeine.onTick = { [weak self] in self?.refreshDynamicText() }
+
+        // A run-loop timer does not fire while the Mac is asleep, so re-check
+        // the deadline on wake to expire a session that ran out mid-sleep.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(systemDidWake(_:)),
+            name: NSWorkspace.didWakeNotification, object: nil)
 
         buildMenu()
         refreshUI()
+    }
+
+    @objc private func systemDidWake(_ note: Notification) {
+        caffeine.checkExpiryNow()
     }
 
     // MARK: - Menu
@@ -129,12 +143,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleDisplaySleep(_ sender: Any?) {
+        // The controller re-asserts in place if active, preserving the running
+        // deadline, and fires onStateChange so the UI refreshes.
         caffeine.keepDisplayAwake.toggle()
-        // Re-assert with the new policy if currently active.
-        if caffeine.isActive {
-            caffeine.activate(duration: lastDuration)
+        if !caffeine.isActive {
+            refreshUI() // idle: no state-change callback, refresh the checkmark
         }
-        refreshUI()
     }
 
     @objc private func toggleLoginItem(_ sender: Any?) {
@@ -170,22 +184,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - UI refresh
 
+    /// Full refresh: regenerate the icon and rebuild every menu/checkmark.
+    /// Called only on genuine state changes (activate/deactivate/policy/login).
     private func refreshUI() {
         let active = caffeine.isActive
         statusItem.button?.image = StatusIcon.image(active: active)
 
-        if active {
-            if let remaining = caffeine.remaining {
-                statusMenuItem.title = "Awake, \(Self.format(remaining)) left"
-                statusItem.button?.toolTip = "CoffeePot: awake, \(Self.format(remaining)) left"
-            } else {
-                statusMenuItem.title = "Awake indefinitely"
-                statusItem.button?.toolTip = "CoffeePot: awake indefinitely"
-            }
-        } else {
-            statusMenuItem.title = "Idle (your Mac can sleep)"
-            statusItem.button?.toolTip = "CoffeePot: idle"
-        }
+        refreshDynamicText()
 
         // Checkmarks reflect which duration is currently active.
         item15.state = (active && lastDuration == 15 * 60) ? .on : .off
@@ -194,6 +199,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         displaySleepItem.state = caffeine.keepDisplayAwake ? .off : .on
         loginItem.state = LoginItem.isEnabled ? .on : .off
+    }
+
+    /// Cheap refresh: only the dynamic countdown text (status line, tooltip,
+    /// accessibility value). Safe to call once a second without redrawing art.
+    private func refreshDynamicText() {
+        let status: String
+        if caffeine.isActive {
+            if let remaining = caffeine.remaining {
+                status = "Awake, \(Self.format(remaining)) left"
+            } else {
+                status = "Awake indefinitely"
+            }
+        } else {
+            status = "Idle (your Mac can sleep)"
+        }
+
+        statusMenuItem.title = status
+        statusItem.button?.toolTip = "CoffeePot: \(status.lowercased())"
+        statusItem.button?.setAccessibilityValue(status)
     }
 
     private static func format(_ interval: TimeInterval) -> String {

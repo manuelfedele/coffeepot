@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <g transform="translate(6,-4)">
+  <!-- LOWER octagonal chamber: wide base tapering up to the waist -->
+  <path fill="#000" d="
+    M 36 87
+    L 32 81
+    L 31 69
+    L 35 63
+    L 45 59
+    L 45 55
+    L 61 55
+    L 61 59
+    L 71 63
+    L 75 69
+    L 74 81
+    L 70 87
+    Z
+  "/>
+  <!-- UPPER trapezoid chamber: pinched waist flaring out to wide top -->
+  <path fill="#000" d="
+    M 45 55
+    L 41 49
+    L 41 37
+    L 65 37
+    L 65 49
+    L 61 55
+    Z
+  "/>
+  <!-- LID rim + KNOB -->
+  <path fill="#000" d="
+    M 39 37
+    L 39 32
+    L 67 32
+    L 67 37
+    Z
+  "/>
+  <circle fill="#000" cx="53" cy="26" r="5"/>
+  <rect fill="#000" x="51" y="28" width="4" height="5"/>
+  <!-- triangular pouring SPOUT upper-right -->
+  <path fill="#000" d="
+    M 65 39
+    L 76 35
+    L 65 45
+    Z
+  "/>
+  <!-- D-HANDLE on the LEFT: outer outline minus triangular grip hole (evenodd) -->
+  <path fill="#000" fill-rule="evenodd" d="
+    M 41 41
+    L 16 41
+    L 11 46
+    L 11 64
+    L 16 69
+    L 41 61
+    L 41 56
+    L 22 62
+    L 19 60
+    L 19 50
+    L 22 47
+    L 41 47
+    Z
+    M 24 50
+    L 24 59
+    L 36 53
+    Z
+  "/>
+  </g>
+</svg>

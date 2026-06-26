@@ -7,19 +7,31 @@ import IOKit.pwr_mgt
 /// process lingering the way spawning the CLI tool would.
 final class CaffeineController {
 
-    /// Called on the main thread whenever the active/inactive state changes,
-    /// so the UI can refresh.
+    /// Fired on the main thread when the active/idle state changes (activate or
+    /// deactivate). The UI uses this to redraw the icon and rebuild menu state.
     var onStateChange: (() -> Void)?
+
+    /// Fired roughly once a second *while a timed session is running*, so the
+    /// menu can show a live countdown. Cheaper than `onStateChange`: it should
+    /// only refresh dynamic text, not regenerate the icon.
+    var onTick: (() -> Void)?
 
     private(set) var isActive = false
     private(set) var endDate: Date?
 
-    private var assertionID: IOPMAssertionID = IOPMAssertionID(0)
+    private var assertionID = IOPMAssertionID(0)
     private var timer: Timer?
 
     /// Whether to also keep the *display* awake. When false we only prevent
-    /// system idle sleep (screen may still dim/sleep).
-    var keepDisplayAwake = true
+    /// system idle sleep (the screen may still dim/sleep). Flipping this while a
+    /// session is active re-asserts in place, preserving the existing deadline.
+    var keepDisplayAwake = true {
+        didSet {
+            guard isActive, keepDisplayAwake != oldValue else { return }
+            createAssertion() // keeps endDate and the running timer untouched
+            notifyStateChange()
+        }
+    }
 
     var remaining: TimeInterval? {
         guard let endDate else { return nil }
@@ -28,11 +40,60 @@ final class CaffeineController {
 
     // MARK: - Public control
 
-    /// Activate for `duration` seconds, or indefinitely when `duration` is nil.
+    /// Activate for `duration` seconds, or indefinitely when `duration` is nil
+    /// or non-positive.
     func activate(duration: TimeInterval?) {
-        // Re-assert cleanly so toggling between durations always works.
+        if let duration, duration > 0 {
+            endDate = Date().addingTimeInterval(duration)
+        } else {
+            endDate = nil // indefinite
+        }
+
+        createAssertion()
+
+        if isActive {
+            startTimerIfNeeded()
+        } else {
+            endDate = nil // assertion failed; createAssertion already reset state
+        }
+
+        notifyStateChange()
+    }
+
+    func deactivate() {
         releaseAssertion()
         invalidateTimer()
+        isActive = false
+        endDate = nil
+        notifyStateChange()
+    }
+
+    /// Toggle: if already running, stop; otherwise start with `duration`.
+    func toggle(duration: TimeInterval?) {
+        if isActive {
+            deactivate()
+        } else {
+            activate(duration: duration)
+        }
+    }
+
+    /// Re-evaluate expiry immediately. Called on system wake, since a run-loop
+    /// timer does not fire while the machine is asleep even though wall-clock
+    /// time (and thus `endDate`) keeps advancing.
+    func checkExpiryNow() {
+        guard isActive, let endDate else { return }
+        if Date() >= endDate {
+            deactivate()
+        }
+    }
+
+    // MARK: - Internals
+
+    /// Create (or re-create) the assertion using the current `keepDisplayAwake`
+    /// policy. Releases any existing assertion first so switching policy or
+    /// duration never leaks. On failure, resets to the inactive state.
+    private func createAssertion() {
+        releaseAssertion()
 
         let assertionType = keepDisplayAwake
             ? kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString
@@ -48,57 +109,33 @@ final class CaffeineController {
         )
 
         guard result == kIOReturnSuccess else {
+            assertionID = IOPMAssertionID(0)
             isActive = false
             endDate = nil
-            notify()
+            invalidateTimer()
             return
         }
 
         assertionID = id
         isActive = true
-
-        if let duration, duration > 0 {
-            let end = Date().addingTimeInterval(duration)
-            endDate = end
-            scheduleExpiry(at: end)
-        } else {
-            endDate = nil // indefinite
-        }
-
-        notify()
     }
 
-    func deactivate() {
-        releaseAssertion()
+    /// Start the 1 Hz countdown/expiry timer, but only for a *timed* session.
+    /// Indefinite sessions need no timer at all, which avoids waking the CPU
+    /// every second for nothing.
+    private func startTimerIfNeeded() {
         invalidateTimer()
-        isActive = false
-        endDate = nil
-        notify()
-    }
+        guard let end = endDate else { return }
 
-    /// Toggle: if already running, stop; otherwise start with `duration`.
-    func toggle(duration: TimeInterval?) {
-        if isActive {
-            deactivate()
-        } else {
-            activate(duration: duration)
-        }
-    }
-
-    // MARK: - Internals
-
-    private func scheduleExpiry(at end: Date) {
-        // Fire every second so the menu can show a live countdown, and stop
-        // when we pass the end date.
         let t = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self else { return }
             if Date() >= end {
                 self.deactivate()
             } else {
-                self.notify()
+                self.onTick?()
             }
         }
-        // Common run loop mode so it keeps firing while menus are open.
+        // Common run-loop mode so it keeps firing while menus are open.
         RunLoop.main.add(t, forMode: .common)
         timer = t
     }
@@ -115,7 +152,7 @@ final class CaffeineController {
         timer = nil
     }
 
-    private func notify() {
+    private func notifyStateChange() {
         if Thread.isMainThread {
             onStateChange?()
         } else {
