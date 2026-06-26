@@ -1,0 +1,11 @@
+# Build artifacts
+build/
+
+# macOS
+.DS_Store
+
+# Swift / Xcode (in case anyone opens it there later)
+.build/
+*.xcodeproj
+DerivedData/
+*.swiftpm
